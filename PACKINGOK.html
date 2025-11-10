@@ -855,27 +855,48 @@ th, td {
     
     const qrU = qr.toUpperCase();
     
+    // 🆕 Logic chống trùng có điều kiện - sử dụng dữ liệu từ bảng bên phải
     if (scannedQRs[qrU]) {
-      const previousStatus = scannedQRs[qrU].status;
-      const duplicateCount = scannedQRs[qrU].count + 1;
-      scannedQRs[qrU].count = duplicateCount;
-      scannedQRs[qrU].lastScanned = new Date();
-      
-      setDuplicate('TRÙNG QR CODE');
-      addLog(qr, `TRÙNG QR CODE (${previousStatus})`, true);
-      
-      logToSheet(qr, previousStatus, shiftSelect.value, empInput.value, poInput.value, woInput.value, itemInput.value, true);
-      
-      emailStatus.textContent = `🔄 Đã quét ${duplicateCount} lần`;
-      emailStatus.style.color = '#8b5cf6';
-      
-      setTimeout(() => {
-        resetResultPanel();
-      }, 2000);
-      
-      return;
+        const previousStatus = scannedQRs[qrU].status;
+        const currentResult = getQRCurrentStatus(qrU); // Lấy trạng thái QC HIỆN TẠI từ bảng
+        
+        console.log(`🔍 Kiểm tra trùng: Trước=${previousStatus}, Hiện tại=${currentResult}`);
+        
+        // 🟢 CHO PHÉP quét lại nếu: Chưa QC → OK hoặc Test Fail → OK
+        if ((previousStatus === 'CHƯA QC' && currentResult === 'OK') || 
+            (previousStatus === 'QC FAIL' && currentResult === 'OK')) {
+            
+            console.log(`🔄 Cho phép quét lại: ${previousStatus} → ${currentResult}`);
+            // Xóa record cũ để xử lý như quét mới
+            delete scannedQRs[qrU];
+        } 
+        // 🔴 CHỐNG TRÙNG trong các trường hợp khác
+        else if (previousStatus === currentResult || 
+                previousStatus === 'OK' || 
+                (previousStatus === 'CHƯA QC' && currentResult === 'QC FAIL') ||
+                (previousStatus === 'QC FAIL' && currentResult === 'CHƯA QC')) {
+            
+            const duplicateCount = scannedQRs[qrU].count + 1;
+            scannedQRs[qrU].count = duplicateCount;
+            scannedQRs[qrU].lastScanned = new Date();
+            
+            setDuplicate('TRÙNG QR CODE');
+            addLog(qr, `TRÙNG QR CODE (${previousStatus} → ${currentResult})`, true);
+            
+            logToSheet(qr, previousStatus, shiftSelect.value, empInput.value, poInput.value, woInput.value, itemInput.value, true);
+            
+            emailStatus.textContent = `🔄 Đã quét ${duplicateCount} lần`;
+            emailStatus.style.color = '#8b5cf6';
+            
+            setTimeout(() => {
+                resetResultPanel();
+            }, 2000);
+            
+            return;
+        }
     }
     
+    // 🔄 Xử lý quét mới hoặc quét lại được cho phép
     countSpan.textContent = Number(countSpan.textContent || 0) + 1;
     
     const matches = findQRInData(qrU, sheetRows);
@@ -883,51 +904,71 @@ th, td {
     let finalStatus = '';
     
     if(!matches.length){
-      setWait('CHƯA QC');
-      addLog(qr,'CHƯA QC'); 
-      finalStatus = 'CHƯA QC';
-      logToSheet(qr, 'CHƯA QC', shiftSelect.value, empInput.value, poInput.value, woInput.value, itemInput.value);
-      sendEmailAlert(qr, { 'Mã hàng': itemInput.value }, 'CHƯA QC');
-    } else {
-      const last = matches[matches.length - 1];
-      const key = findStatusKey(last);
-      const val = norm(last[key] || '');
-      
-      console.log('📋 Kết quả phán định:', val, 'từ key:', key);
-      
-      if(/OK|PASS|GOOD/.test(val)){ 
-        setOK('OK'); 
-        addLog(qr,'OK'); 
-        finalStatus = 'OK';
-        logToSheet(qr, 'OK', shiftSelect.value, empInput.value, poInput.value, woInput.value, itemInput.value);
-      }
-      else if(/NG|FAIL/.test(val)){ 
-        setFail('QC FAIL'); 
-        addLog(qr,'QC FAIL'); 
-        finalStatus = 'QC FAIL';
-        sendEmailAlert(qr, last, 'FAIL');
-        logToSheet(qr, 'QC FAIL', shiftSelect.value, empInput.value, poInput.value, woInput.value, itemInput.value);
-      }
-      else { 
         setWait('CHƯA QC');
         addLog(qr,'CHƯA QC'); 
         finalStatus = 'CHƯA QC';
-        sendEmailAlert(qr, last, 'CHƯA QC');
         logToSheet(qr, 'CHƯA QC', shiftSelect.value, empInput.value, poInput.value, woInput.value, itemInput.value);
-      }
+        sendEmailAlert(qr, { 'Mã hàng': itemInput.value }, 'CHƯA QC');
+    } else {
+        const last = matches[matches.length - 1];
+        const key = findStatusKey(last);
+        const val = norm(last[key] || '');
+        
+        console.log('📋 Kết quả phán định:', val, 'từ key:', key);
+        
+        if(/OK|PASS|GOOD/.test(val)){ 
+            setOK('OK'); 
+            addLog(qr,'OK'); 
+            finalStatus = 'OK';
+            logToSheet(qr, 'OK', shiftSelect.value, empInput.value, poInput.value, woInput.value, itemInput.value);
+        }
+        else if(/NG|FAIL/.test(val)){ 
+            setFail('QC FAIL'); 
+            addLog(qr,'QC FAIL'); 
+            finalStatus = 'QC FAIL';
+            sendEmailAlert(qr, last, 'FAIL');
+            logToSheet(qr, 'QC FAIL', shiftSelect.value, empInput.value, poInput.value, woInput.value, itemInput.value);
+        }
+        else { 
+            setWait('CHƯA QC');
+            addLog(qr,'CHƯA QC'); 
+            finalStatus = 'CHƯA QC';
+            sendEmailAlert(qr, last, 'CHƯA QC');
+            logToSheet(qr, 'CHƯA QC', shiftSelect.value, empInput.value, poInput.value, woInput.value, itemInput.value);
+        }
     }
     
     scannedQRs[qrU] = {
-      status: finalStatus,
-      timestamp: new Date(),
-      count: 1
+        status: finalStatus,
+        timestamp: new Date(),
+        count: (scannedQRs[qrU]?.count || 0) + 1
     };
     
     setTimeout(() => {
-      resetResultPanel();
+        resetResultPanel();
     }, 2000);
-  }
+}
 
+// 🆕 Hàm lấy trạng thái QC hiện tại từ BẢNG BÊN PHẢI (dữ liệu đã load)
+function getQRCurrentStatus(qr) {
+    const matches = findQRInData(qr, sheetRows); // Sử dụng sheetRows (dữ liệu từ bảng)
+    
+    if (!matches.length) {
+        return 'CHƯA QC';
+    }
+    
+    const last = matches[matches.length - 1];
+    const key = findStatusKey(last);
+    const val = norm(last[key] || '');
+    
+    if (/OK|PASS|GOOD/.test(val)) {
+        return 'OK';
+    } else if (/NG|FAIL/.test(val)) {
+        return 'QC FAIL';
+    } else {
+        return 'CHƯA QC';
+    }
+}
   // Data Loading
   async function loadSheet(){
     try{
@@ -1015,7 +1056,7 @@ th, td {
   }
 
   function renderAllRows(){
-    if(!filteredRows.length === 0) return;
+    if(filteredRows.length === 0) return;
 
     sheetBody.innerHTML = filteredRows.map(r => {
       const statusKey = findStatusKey(r);
